@@ -2,6 +2,7 @@ package btree
 
 import (
 	"cmp"
+	"errors"
 )
 
 type item[K cmp.Ordered, V any] struct {
@@ -17,10 +18,34 @@ type node[K cmp.Ordered, V any] struct {
 	children    []*node[K, V]
 }
 
+// isLeaf checks whether the node is a leaf.
 func (n *node[K, V]) isLeaf() bool {
 	return n.numChildren == 0
 }
 
+// insertKey inserts a new key at the specified index.
+func (n *node[K, V]) insertKey(index int, it *item[K, V]) {
+	if index < n.numKeys {
+		for i := n.numKeys; i > index; i-- {
+			n.keys[i] = n.keys[i-1]
+		}
+	}
+	n.keys[index] = it
+	n.numKeys++
+}
+
+// insertChild inserts a new child at the specified index.
+func (n *node[K, V]) insertChild(index int, child *node[K, V]) {
+	if index < n.numChildren {
+		for i := n.numChildren; i > index; i-- {
+			n.children[i] = n.children[i-1]
+		}
+	}
+	n.children[index] = child
+	n.numChildren++
+}
+
+// split performs split of the node to median and right.
 func (n *node[K, V]) split() (*item[K, V], *node[K, V]) {
 	mid := n.numKeys / 2
 	median := n.keys[mid]
@@ -34,23 +59,29 @@ func (n *node[K, V]) split() (*item[K, V], *node[K, V]) {
 	for i := mid + 1; i < n.numKeys; i++ {
 		right.keys[i-mid-1] = n.keys[i]
 		n.keys[i] = nil
+
 	}
-	n.numKeys -= mid + 1
-	right.numKeys = n.numKeys
 	n.keys[mid] = nil
+	
+	keyDiff := n.numKeys - mid - 1
+	n.numKeys -= (keyDiff + 1) // Accounts for median key
+	right.numKeys += keyDiff
 
 	if !n.isLeaf() {
 		for i := mid + 1; i < n.numChildren; i++ {
 			right.children[i-mid-1] = n.children[i]
 			n.children[i] = nil
 		}
-		n.numChildren -= mid + 1
-		right.numChildren = n.numChildren
+
+		childDiff := n.numChildren - mid - 1
+		n.numChildren -= childDiff
+		right.numChildren += childDiff
 	}
 
 	return median, right
 }
 
+// search finds the position of the given key or its insertion index.
 func (n *node[K, V]) search(key K) (int, bool) {
 	low, high := 0, n.numKeys-1
 
@@ -70,6 +101,7 @@ func (n *node[K, V]) search(key K) (int, bool) {
 	return low, false
 }
 
+// insert adds a new item to the tree.
 func (n *node[K, V]) insert(it *item[K, V]) bool {
 	index, ok := n.search(it.Key)
 	if ok {
@@ -78,22 +110,20 @@ func (n *node[K, V]) insert(it *item[K, V]) bool {
 	}
 
 	if n.isLeaf() {
-		n.keys[index] = it
-		n.numKeys++
+		n.insertKey(index, it)
 		return n.numKeys == n.order
 	}
 
 	if n.children[index].insert(it) {
 		median, right := n.children[index].split()
-		n.keys[n.numKeys] = median
-		n.children[n.numChildren] = right
-		n.numKeys++
-		n.numChildren++
+		n.insertKey(index, median)
+		n.insertChild(index+1, right)
 	}
 
 	return n.numKeys == n.order
 }
 
+// traverse returns in-order depth first search of the tree.
 func (n *node[K, V]) traverse() []*item[K, V] {
 	if n.isLeaf() {
 		items := make([]*item[K, V], n.numKeys)
@@ -125,6 +155,7 @@ func NewBtree[K cmp.Ordered, V any](order int) *Btree[K, V] {
 	}
 }
 
+// Search finds the value of the given key.
 func (b *Btree[K, V]) Search(key K) (V, error) {
 	for node := b.root; node != nil; {
 		index, ok := node.search(key)
@@ -136,9 +167,10 @@ func (b *Btree[K, V]) Search(key K) (V, error) {
 	}
 
 	var value V
-	return value, ErrKeyNotFound
+	return value, errors.New("key not found")
 }
 
+// split performs split of the root node.
 func (b *Btree[K, V]) split() {
 	root := &node[K, V]{
 		order:    b.order,
@@ -156,6 +188,7 @@ func (b *Btree[K, V]) split() {
 	b.root = root
 }
 
+// Insert adds a new key-value pair to the tree.
 func (b *Btree[K, V]) Insert(key K, value V) {
 	it := &item[K, V]{
 		Key:   key,
@@ -175,6 +208,7 @@ func (b *Btree[K, V]) Insert(key K, value V) {
 	}
 }
 
+// Traverse returns the in-order depth first search of the tree.
 func (b *Btree[K, V]) Traverse() []*item[K, V] {
 	if b.root != nil {
 		return b.root.traverse()
@@ -182,3 +216,4 @@ func (b *Btree[K, V]) Traverse() []*item[K, V] {
 
 	return []*item[K, V]{}
 }
+
