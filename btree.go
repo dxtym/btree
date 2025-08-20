@@ -45,6 +45,26 @@ func (n *node[K, V]) insertChild(index int, child *node[K, V]) {
 	n.numChildren++
 }
 
+func (n *node[K, V]) removeKey(index int) {
+	if index < n.numKeys-1 {
+		for i := index; i < n.numKeys-1; i++ {
+			n.keys[i] = n.keys[i+1]
+		}
+	}
+	n.keys[n.numKeys-1] = nil
+	n.numKeys--
+}
+
+func (n *node[K, V]) removeChild(index int) {
+	if index < n.numChildren-1 {
+		for i := index; i < n.numChildren-1; i++ {
+			n.children[i] = n.children[i+1]
+		}
+	}
+	n.children[n.numChildren-1] = nil
+	n.numChildren--
+}
+
 // split performs split of the node to median and right.
 func (n *node[K, V]) split() (*item[K, V], *node[K, V]) {
 	mid := n.numKeys / 2
@@ -62,9 +82,9 @@ func (n *node[K, V]) split() (*item[K, V], *node[K, V]) {
 
 	}
 	n.keys[mid] = nil
-	
+
 	keyDiff := n.numKeys - mid - 1
-	n.numKeys -= (keyDiff + 1) // Accounts for median key
+	n.numKeys -= (keyDiff + 1) // NOTE: accounts for median key
 	right.numKeys += keyDiff
 
 	if !n.isLeaf() {
@@ -144,6 +164,67 @@ func (n *node[K, V]) traverse() []*item[K, V] {
 	return items
 }
 
+func (n *node[K, V]) borrowLeft(index int) {
+	left, right := n.children[index-1], n.children[index]
+
+	parent := n.keys[index-1]
+	right.insertKey(0, parent)
+
+	if !left.isLeaf() {
+		right.insertChild(0, left.children[left.numChildren-1])
+		left.removeChild(left.numChildren - 1)
+	}
+
+	n.keys[index-1] = left.keys[left.numKeys-1]
+	left.removeKey(left.numKeys - 1)
+}
+
+func (n *node[K, V]) borrowRight(index int) {
+	left, right := n.children[index], n.children[index+1]
+
+	parent := n.keys[index]
+	left.insertKey(left.numKeys, parent)
+
+	if !right.isLeaf() {
+		left.insertChild(left.numChildren, right.children[0])
+		right.removeChild(0)
+	}
+
+	n.keys[index] = right.keys[0]
+	right.removeKey(0)
+}
+
+// remove deletes the key from the tree.
+func (n *node[K, V]) remove(key K) bool {
+	index, ok := n.search(key)
+	if ok {
+		if n.isLeaf() {
+			// remove key from leaf node
+		} else {
+			// remove ket from nonleaf node
+		}
+
+		return n.numKeys < n.order/2
+	} else {
+		if n.isLeaf() {
+			return false
+		}
+
+		if n.children[index].remove(key) {
+			switch {
+			case index > 0 && n.children[index-1].numKeys > n.order/2:
+				n.borrowLeft(index)
+			case index < n.numChildren && n.children[index+1].numKeys > n.order/2:
+				n.borrowRight(index)
+			default:
+				// merge either left or right
+			}
+		}
+
+		return n.numKeys < n.order/2
+	}
+}
+
 type Btree[K cmp.Ordered, V any] struct {
 	order int
 	root  *node[K, V]
@@ -155,6 +236,7 @@ func NewBtree[K cmp.Ordered, V any](order int) *Btree[K, V] {
 	}
 }
 
+// TODO: return just the value or nil (if not exists)
 // Search finds the value of the given key.
 func (b *Btree[K, V]) Search(key K) (V, error) {
 	for node := b.root; node != nil; {
@@ -217,3 +299,7 @@ func (b *Btree[K, V]) Traverse() []*item[K, V] {
 	return []*item[K, V]{}
 }
 
+// Remove deletes the key from the tree.
+func (b *Btree[K, V]) Remove(key K) error {
+	return nil
+}
