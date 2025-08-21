@@ -5,6 +5,11 @@ import (
 	"errors"
 )
 
+var (
+	ErrTreeEmpty     = errors.New("tree is empty")
+	ErrKeyNotFound   = errors.New("key not found")
+)
+
 type item[K cmp.Ordered, V any] struct {
 	Key   K
 	Value V
@@ -243,8 +248,13 @@ func (n *node[K, V]) getPredecessor(index int) *item[K, V] {
 	for !curr.isLeaf() {
 		curr = curr.children[curr.numChildren-1]
 	}
+
 	pred := curr.keys[curr.numKeys-1]
 	curr.removeKey(curr.numKeys - 1)
+	if curr.isEmpty() {
+		n.removeChild(index)
+	}
+
 	return pred
 }
 
@@ -254,8 +264,13 @@ func (n *node[K, V]) getSuccessor(index int) *item[K, V] {
 	for !curr.isLeaf() {
 		curr = curr.children[0]
 	}
+
 	succ := curr.keys[0]
 	curr.removeKey(0)
+	if curr.isEmpty() {
+		n.removeChild(index + 1)
+	}
+
 	return succ
 }
 
@@ -267,10 +282,10 @@ func (n *node[K, V]) remove(key K) (error, bool) {
 			n.removeKey(index)
 		} else {
 			switch {
-			case n.children[index].numKeys > n.order/2:
+			case n.children[index].numKeys >= n.order/2:
 				pred := n.getPredecessor(index)
 				n.keys[index] = pred
-			case n.children[index+1].numKeys > n.order/2:
+			case n.children[index+1].numKeys >= n.order/2:
 				succ := n.getSuccessor(index)
 				n.keys[index] = succ
 			default:
@@ -282,7 +297,7 @@ func (n *node[K, V]) remove(key K) (error, bool) {
 	}
 
 	if n.isLeaf() {
-		return errors.New("key not found"), false
+		return ErrKeyNotFound, false
 	}
 
 	err, ok := n.children[index].remove(key)
@@ -298,7 +313,7 @@ type Btree[K cmp.Ordered, V any] struct {
 	root  *node[K, V]
 }
 
-func NewBtree[K cmp.Ordered, V any](order int) *Btree[K, V] {
+func New[K cmp.Ordered, V any](order int) *Btree[K, V] {
 	return &Btree[K, V]{
 		order: order,
 	}
@@ -316,7 +331,7 @@ func (b *Btree[K, V]) Search(key K) (V, error) {
 	}
 
 	var value V
-	return value, errors.New("key not found")
+	return value, ErrKeyNotFound
 }
 
 // split performs split of the root node.
@@ -371,9 +386,10 @@ func (b *Btree[K, V]) Traverse() []*item[K, V] {
 // Remove deletes the key from the tree.
 func (b *Btree[K, V]) Remove(key K) error {
 	if b.root == nil {
-		return errors.New("tree is empty")
+		return ErrTreeEmpty
 	}
 
+	// TODO: fix dangling child
 	err, ok := b.root.remove(key)
 	if ok {
 		if !b.root.isEmpty() {
