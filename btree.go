@@ -18,6 +18,11 @@ type node[K cmp.Ordered, V any] struct {
 	children    []*node[K, V]
 }
 
+// isEmpty checks whether the node is empty.
+func (n *node[K, V]) isEmpty() bool {
+	return n.numKeys == 0
+}
+
 // isLeaf checks whether the node is a leaf.
 func (n *node[K, V]) isLeaf() bool {
 	return n.numChildren == 0
@@ -45,6 +50,7 @@ func (n *node[K, V]) insertChild(index int, child *node[K, V]) {
 	n.numChildren++
 }
 
+// removeKey removes the key at the specified index.
 func (n *node[K, V]) removeKey(index int) {
 	if index < n.numKeys-1 {
 		for i := index; i < n.numKeys-1; i++ {
@@ -55,6 +61,7 @@ func (n *node[K, V]) removeKey(index int) {
 	n.numKeys--
 }
 
+// removeChild removes the child at the specified index.
 func (n *node[K, V]) removeChild(index int) {
 	if index < n.numChildren-1 {
 		for i := index; i < n.numChildren-1; i++ {
@@ -65,7 +72,7 @@ func (n *node[K, V]) removeChild(index int) {
 	n.numChildren--
 }
 
-// split performs split of the node to median and right.
+// split separates the node to median and right.
 func (n *node[K, V]) split() (*item[K, V], *node[K, V]) {
 	mid := n.numKeys / 2
 	median := n.keys[mid]
@@ -79,13 +86,12 @@ func (n *node[K, V]) split() (*item[K, V], *node[K, V]) {
 	for i := mid + 1; i < n.numKeys; i++ {
 		right.keys[i-mid-1] = n.keys[i]
 		n.keys[i] = nil
-
 	}
 	n.keys[mid] = nil
 
-	keyDiff := n.numKeys - mid - 1
-	n.numKeys -= (keyDiff + 1) // NOTE: accounts for median key
-	right.numKeys += keyDiff
+	diff := n.numKeys - mid - 1
+	n.numKeys -= diff + 1 // NOTE: accounts for median key
+	right.numKeys += diff
 
 	if !n.isLeaf() {
 		for i := mid + 1; i < n.numChildren; i++ {
@@ -93,9 +99,9 @@ func (n *node[K, V]) split() (*item[K, V], *node[K, V]) {
 			n.children[i] = nil
 		}
 
-		childDiff := n.numChildren - mid - 1
-		n.numChildren -= childDiff
-		right.numChildren += childDiff
+		diff := n.numChildren - mid - 1
+		n.numChildren -= diff
+		right.numChildren += diff
 	}
 
 	return median, right
@@ -106,7 +112,7 @@ func (n *node[K, V]) search(key K) (int, bool) {
 	low, high := 0, n.numKeys-1
 
 	for low <= high {
-		mid := low + (high-low)/2
+		mid := low + (high-low)/2 // NOTE: avoids overflow
 		current := n.keys[mid].Key
 
 		if current > key {
@@ -164,6 +170,7 @@ func (n *node[K, V]) traverse() []*item[K, V] {
 	return items
 }
 
+// borrowLeft borrows a key from the left sibling.
 func (n *node[K, V]) borrowLeft(index int) {
 	left, right := n.children[index-1], n.children[index]
 
@@ -179,6 +186,7 @@ func (n *node[K, V]) borrowLeft(index int) {
 	left.removeKey(left.numKeys - 1)
 }
 
+// borrowRight borrows a key from the right sibling.
 func (n *node[K, V]) borrowRight(index int) {
 	left, right := n.children[index], n.children[index+1]
 
@@ -194,35 +202,95 @@ func (n *node[K, V]) borrowRight(index int) {
 	right.removeKey(0)
 }
 
+// merge merges the left node with its right sibling.
+func (n *node[K, V]) merge(index int) {
+	left, right := n.children[index], n.children[index+1]
+
+	parent := n.keys[index]
+	left.insertKey(left.numKeys, parent)
+
+	for i := 0; i < right.numKeys; i++ {
+		left.insertKey(left.numKeys, right.keys[i])
+		right.keys[i] = nil
+	}
+
+	if !right.isLeaf() {
+		for i := 0; i < right.numChildren; i++ {
+			left.insertChild(left.numChildren, right.children[i])
+			right.children[i] = nil
+		}
+	}
+
+	n.removeKey(index)
+	n.removeChild(index + 1)
+}
+
+// fill checks if the node has enough keys and fills it if necessary.
+func (n *node[K, V]) fill(index int) {
+	switch {
+	case index > 0 && n.children[index-1].numKeys > n.order/2:
+		n.borrowLeft(index)
+	case index < n.numChildren && n.children[index+1].numKeys > n.order/2:
+		n.borrowRight(index)
+	default:
+		n.merge(index)
+	}
+}
+
+// getPredecessor retrieves the predecessor of the key at the specified index.
+func (n *node[K, V]) getPredecessor(index int) *item[K, V] {
+	curr := n.children[index]
+	for !curr.isLeaf() {
+		curr = curr.children[curr.numChildren-1]
+	}
+	pred := curr.keys[curr.numKeys-1]
+	curr.removeKey(curr.numKeys - 1)
+	return pred
+}
+
+// getSuccessor retrieves the successor of the key at the specified index.
+func (n *node[K, V]) getSuccessor(index int) *item[K, V] {
+	curr := n.children[index+1]
+	for !curr.isLeaf() {
+		curr = curr.children[0]
+	}
+	succ := curr.keys[0]
+	curr.removeKey(0)
+	return succ
+}
+
 // remove deletes the key from the tree.
-func (n *node[K, V]) remove(key K) bool {
+func (n *node[K, V]) remove(key K) (error, bool) {
 	index, ok := n.search(key)
 	if ok {
 		if n.isLeaf() {
-			// remove key from leaf node
+			n.removeKey(index)
 		} else {
-			// remove ket from nonleaf node
-		}
-
-		return n.numKeys < n.order/2
-	} else {
-		if n.isLeaf() {
-			return false
-		}
-
-		if n.children[index].remove(key) {
 			switch {
-			case index > 0 && n.children[index-1].numKeys > n.order/2:
-				n.borrowLeft(index)
-			case index < n.numChildren && n.children[index+1].numKeys > n.order/2:
-				n.borrowRight(index)
+			case n.children[index].numKeys > n.order/2:
+				pred := n.getPredecessor(index)
+				n.keys[index] = pred
+			case n.children[index+1].numKeys > n.order/2:
+				succ := n.getSuccessor(index)
+				n.keys[index] = succ
 			default:
-				// merge either left or right
+				n.merge(index)
 			}
 		}
 
-		return n.numKeys < n.order/2
+		return nil, n.numKeys < n.order/2
 	}
+
+	if n.isLeaf() {
+		return errors.New("key not found"), false
+	}
+
+	err, ok := n.children[index].remove(key)
+	if ok {
+		n.fill(index)
+	}
+
+	return err, n.numKeys < n.order/2
 }
 
 type Btree[K cmp.Ordered, V any] struct {
@@ -236,7 +304,6 @@ func NewBtree[K cmp.Ordered, V any](order int) *Btree[K, V] {
 	}
 }
 
-// TODO: return just the value or nil (if not exists)
 // Search finds the value of the given key.
 func (b *Btree[K, V]) Search(key K) (V, error) {
 	for node := b.root; node != nil; {
@@ -261,9 +328,11 @@ func (b *Btree[K, V]) split() {
 	}
 
 	median, right := b.root.split()
+
 	root.keys[root.numKeys] = median
 	root.children[root.numChildren] = b.root
 	root.children[root.numChildren+1] = right
+
 	root.numKeys++
 	root.numChildren += 2
 
@@ -301,5 +370,22 @@ func (b *Btree[K, V]) Traverse() []*item[K, V] {
 
 // Remove deletes the key from the tree.
 func (b *Btree[K, V]) Remove(key K) error {
-	return nil
+	if b.root == nil {
+		return errors.New("tree is empty")
+	}
+
+	err, ok := b.root.remove(key)
+	if ok {
+		if !b.root.isEmpty() {
+			return err
+		}
+
+		if b.root.isLeaf() {
+			b.root = nil
+		} else {
+			b.root = b.root.children[0]
+		}
+	}
+
+	return err
 }
