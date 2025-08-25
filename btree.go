@@ -108,26 +108,24 @@ func (n *node[K, V]) split() (*item[K, V], *node[K, V]) {
 		children: make([]*node[K, V], n.order+1),
 	}
 
-	for i := mid + 1; i < n.numKeys; i++ {
+	keyCount := n.numKeys
+	for i := mid + 1; i < keyCount; i++ {
 		right.keys[i-mid-1] = n.keys[i]
 		n.keys[i] = nil
+		right.numKeys++
+		n.numKeys--
 	}
 	n.keys[mid] = nil
-
-	// TODO: find a better way to write this
-	diff := n.numKeys - mid - 1
-	n.numKeys -= diff + 1 // NOTE: accounts for median key
-	right.numKeys += diff
+	n.numKeys--
 
 	if !n.isLeaf() {
-		for i := mid + 1; i < n.numChildren; i++ {
+		childCount := n.numChildren
+		for i := mid + 1; i < childCount; i++ {
 			right.children[i-mid-1] = n.children[i]
 			n.children[i] = nil
+			right.numChildren++
+			n.numChildren--
 		}
-
-		diff := n.numChildren - mid - 1
-		n.numChildren -= diff
-		right.numChildren += diff
 	}
 
 	return median, right
@@ -138,7 +136,7 @@ func (n *node[K, V]) search(key K) (int, bool) {
 	low, high := 0, n.numKeys-1
 
 	for low <= high {
-		mid := low + (high-low)/2 
+		mid := low + (high-low)/2
 		current := n.keys[mid].Key
 
 		if current > key {

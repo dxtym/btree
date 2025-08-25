@@ -1,5 +1,7 @@
 # Btree
 
+[![License](https://img.shields.io/badge/License-MIT-blue)](#license)
+
 An in-memory generic B-tree data structure in Go.
 
 ## Installation
@@ -7,6 +9,13 @@ An in-memory generic B-tree data structure in Go.
 ```bash
 go get github.com/dxtym/btree
 ```
+
+## Features
+
+- **Insert**: Add a key-value item
+- **Search**: Find a value by key
+- **Remove**: Delete an item by key
+- **Traverse**: Get all items in order
 
 ## Example
 
@@ -21,8 +30,7 @@ for range 100 {
     b.Insert(key, strconv.Itoa(key))
 }
 
-value, err := b.Search(42)
-if err != nil {
+if value, err := b.Search(42); err != nil {
     panic(err)
 }
 
@@ -30,3 +38,13 @@ if err := b.Remove(42); err != nil {
     panic(err)
 }
 ```
+
+## Plans
+
+- Make concurrent safe
+- Add benchmarks tests
+- Optimize memory usage
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.

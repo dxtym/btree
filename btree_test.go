@@ -243,7 +243,7 @@ func TestBtree_Remove(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name: "borrow right",
+			name:  "borrow right",
 			order: 4,
 			key:   3,
 			items: []item{
@@ -268,11 +268,71 @@ func TestBtree_Remove(t *testing.T) {
 			}
 
 			err := b.Remove(tt.key)
-			assert.ErrorIs(t, err, tt.wantErr) 
+			assert.ErrorIs(t, err, tt.wantErr)
 
 			result := b.Traverse()
 			for _, res := range result {
 				assert.NotEqual(t, tt.key, res.Key)
+			}
+		})
+	}
+}
+
+func TestBtree_Traverse(t *testing.T) {
+	tests := []struct {
+		name  string
+		order int
+		items []item
+	}{
+		{
+			name:  "simple",
+			order: 3,
+			items: []item{
+				{key: 1, value: "a"},
+				{key: 2, value: "b"},
+				{key: 3, value: "c"},
+				{key: 4, value: "d"},
+				{key: 5, value: "e"},
+				{key: 6, value: "f"},
+				{key: 7, value: "g"},
+			},
+		},
+		{
+			name:  "reverse",
+			order: 3,
+			items: []item{
+				{key: 7, value: "g"},
+				{key: 6, value: "f"},
+				{key: 5, value: "e"},
+				{key: 4, value: "d"},
+				{key: 3, value: "c"},
+				{key: 2, value: "b"},
+				{key: 1, value: "a"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b, _ := btree.New[int, string](tt.order)
+
+			for _, item := range tt.items {
+				b.Insert(item.key, item.value)
+			}
+
+			result := b.Traverse()
+			assert.Len(t, result, len(tt.items))
+			assert.True(t, sort.SliceIsSorted(result, func(i, j int) bool {
+				return result[i].Key < result[j].Key
+			}))
+
+			sort.Slice(tt.items, func(i, j int) bool {
+				return tt.items[i].key < tt.items[j].key
+			})
+			
+			for i, res := range result {
+				assert.Equal(t, tt.items[i].key, res.Key)
+				assert.Equal(t, tt.items[i].value, res.Value)
 			}
 		})
 	}
