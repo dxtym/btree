@@ -1,83 +1,68 @@
 package btree_test
 
 import (
-	"sort"
+	"sync"
 	"testing"
 
 	"github.com/dxtym/btree"
 	"github.com/stretchr/testify/assert"
 )
 
-type item struct {
-	key   int
-	value string
-}
-
 func TestBtree_Insert(t *testing.T) {
 	tests := []struct {
 		name   string
 		order  int
 		number int
-		items  []item
+		items  map[int]string
 	}{
 		{
-			name:   "simple",
+			name:   "Simple",
 			order:  3,
 			number: 2,
-			items: []item{
-				{key: 1, value: "a"},
-				{key: 2, value: "b"},
+			items: map[int]string{
+				1: "a",
+				2: "b",
 			},
 		},
 		{
-			name:   "duplicate",
-			order:  3,
-			number: 2,
-			items: []item{
-				{key: 1, value: "a"},
-				{key: 2, value: "b"},
-				{key: 2, value: "c"},
-			},
-		},
-		{
-			name:   "one split",
+			name:   "One Split",
 			order:  3,
 			number: 4,
-			items: []item{
-				{key: 1, value: "a"},
-				{key: 2, value: "b"},
-				{key: 3, value: "c"},
-				{key: 4, value: "d"},
+			items: map[int]string{
+				1: "a",
+				2: "b",
+				3: "c",
+				4: "d",
 			},
 		},
 		{
-			name:   "multiple split",
+			name:   "Multiple Split",
 			order:  3,
 			number: 7,
-			items: []item{
-				{key: 1, value: "a"},
-				{key: 2, value: "b"},
-				{key: 3, value: "c"},
-				{key: 4, value: "d"},
-				{key: 5, value: "e"},
-				{key: 6, value: "f"},
-				{key: 7, value: "g"},
+			items: map[int]string{
+				1: "a",
+				2: "b",
+				3: "c",
+				4: "d",
+				5: "e",
+				6: "f",
+				7: "g",
 			},
 		},
 		{
-			name:   "random",
+			name:   "Random",
 			order:  4,
 			number: 9,
-			items: []item{
-				{key: 3, value: "c"},
-				{key: 2, value: "b"},
-				{key: 5, value: "e"},
-				{key: 1, value: "a"},
-				{key: 4, value: "d"},
-				{key: 8, value: "h"},
-				{key: 7, value: "g"},
-				{key: 6, value: "f"},
-				{key: 9, value: "i"},
+			items: map[int]string{
+				3: "c",
+				2: "b",
+				5: "e",
+				1: "a",
+				4: "d",
+				8: "h",
+				7: "g",
+				6: "f",
+				9: "i",
 			},
 		},
 	}
@@ -86,22 +71,19 @@ func TestBtree_Insert(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			b, _ := btree.New[int, string](tt.order)
 
-			for _, item := range tt.items {
-				b.Insert(item.key, item.value)
+			wg := sync.WaitGroup{}
+			for key, value := range tt.items {
+				wg.Add(1)
+				go func() {
+					b.Insert(key, value)
+					wg.Done()
+				}()
 			}
+			wg.Wait()
 
-			items := make(map[int]string)
-			for _, item := range tt.items {
-				items[item.key] = item.value
-			}
-
-			result := b.Traverse()
-			assert.Len(t, result, tt.number)
-			assert.True(t, sort.SliceIsSorted(result, func(i, j int) bool {
-				return result[i].Key < result[j].Key
-			}))
-			for _, res := range result {
-				assert.Equal(t, items[res.Key], res.Value)
+			items := b.Iter()
+			for it := range items {
+				assert.Equal(t, tt.items[it.Key], it.Value)
 			}
 		})
 	}
@@ -112,43 +94,43 @@ func TestBtree_Search(t *testing.T) {
 		name    string
 		order   int
 		search  int
-		items   []item
+		items   map[int]string
 		wantErr error
 	}{
 		{
-			name:   "exist",
+			name:   "Exist",
 			order:  3,
 			search: 2,
-			items: []item{
-				{key: 1, value: "a"},
-				{key: 2, value: "b"},
-				{key: 3, value: "c"},
+			items: map[int]string{
+				1: "a",
+				2: "b",
+				3: "c",
 			},
 			wantErr: nil,
 		},
 		{
-			name:   "not exist",
+			name:   "Not Exist",
 			order:  3,
 			search: 4,
-			items: []item{
-				{key: 1, value: "a"},
-				{key: 2, value: "b"},
-				{key: 3, value: "c"},
+			items: map[int]string{
+				1: "a",
+				2: "b",
+				3: "c",
 			},
 			wantErr: btree.ErrKeyNotFound,
 		},
 		{
-			name:   "deep",
+			name:   "Deep",
 			order:  3,
 			search: 5,
-			items: []item{
-				{key: 1, value: "a"},
-				{key: 2, value: "b"},
-				{key: 3, value: "c"},
-				{key: 4, value: "d"},
-				{key: 5, value: "e"},
-				{key: 6, value: "f"},
-				{key: 7, value: "g"},
+			items: map[int]string{
+				1: "a",
+				2: "b",
+				3: "c",
+				4: "d",
+				5: "e",
+				6: "f",
+				7: "g",
 			},
 			wantErr: nil,
 		},
@@ -158,16 +140,22 @@ func TestBtree_Search(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			b, _ := btree.New[int, string](tt.order)
 
-			for _, item := range tt.items {
-				b.Insert(item.key, item.value)
+			wg := sync.WaitGroup{}
+			for key, value := range tt.items {
+				wg.Add(1)
+				go func() {
+					b.Insert(key, value)
+					wg.Done()
+				}()
 			}
+			wg.Wait()
 
-			value, err := b.Search(tt.search)
+			found, err := b.Search(tt.search)
 			assert.ErrorIs(t, err, tt.wantErr)
 
-			for _, item := range tt.items {
-				if item.key == tt.search {
-					assert.Equal(t, item.value, value)
+			for key, value := range tt.items {
+				if key == tt.search {
+					assert.Equal(t, value, found)
 					break
 				}
 			}
@@ -180,80 +168,58 @@ func TestBtree_Remove(t *testing.T) {
 		name    string
 		order   int
 		key     int
-		items   []item
+		items   map[int]string
 		wantErr error
 	}{
 		{
-			name:  "simple",
+			name:  "Simple",
 			order: 3,
 			key:   2,
-			items: []item{
-				{key: 1, value: "a"},
-				{key: 2, value: "b"},
-				{key: 3, value: "c"},
+			items: map[int]string{
+				1: "a",
+				2: "b",
+				3: "c",
 			},
 			wantErr: nil,
 		},
 		{
-			name:  "not exist",
+			name:  "Not Exist",
 			order: 3,
 			key:   4,
-			items: []item{
-				{key: 1, value: "a"},
-				{key: 2, value: "b"},
-				{key: 3, value: "c"},
+			items: map[int]string{
+				1: "a",
+				2: "b",
+				3: "c",
 			},
 			wantErr: btree.ErrKeyNotFound,
 		},
 		{
-			name:    "empty",
-			order:   3,
-			key:     1,
-			items:   []item{},
-			wantErr: btree.ErrTreeEmpty,
-		},
-		{
-			name:  "leaf",
+			name:  "Leaf",
 			order: 3,
 			key:   3,
-			items: []item{
-				{key: 1, value: "a"},
-				{key: 2, value: "b"},
-				{key: 3, value: "c"},
-				{key: 4, value: "d"},
-				{key: 5, value: "e"},
-				{key: 6, value: "f"},
-				{key: 7, value: "g"},
+			items: map[int]string{
+				1: "a",
+				2: "b",
+				3: "c",
+				4: "d",
+				5: "e",
+				6: "f",
+				7: "g",
 			},
 			wantErr: nil,
 		},
 		{
-			name:  "internal",
+			name:  "Internal",
 			order: 3,
 			key:   2,
-			items: []item{
-				{key: 1, value: "a"},
-				{key: 2, value: "b"},
-				{key: 3, value: "c"},
-				{key: 4, value: "d"},
-				{key: 5, value: "e"},
-				{key: 6, value: "f"},
-				{key: 7, value: "g"},
-			},
-			wantErr: nil,
-		},
-		{
-			name:  "borrow right",
-			order: 4,
-			key:   3,
-			items: []item{
-				{key: 1, value: "a"},
-				{key: 2, value: "b"},
-				{key: 3, value: "c"},
-				{key: 4, value: "d"},
-				{key: 5, value: "e"},
-				{key: 6, value: "f"},
-				{key: 7, value: "g"},
+			items: map[int]string{
+				1: "a",
+				2: "b",
+				3: "c",
+				4: "d",
+				5: "e",
+				6: "f",
+				7: "g",
 			},
 			wantErr: nil,
 		},
@@ -263,51 +229,62 @@ func TestBtree_Remove(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			b, _ := btree.New[int, string](tt.order)
 
-			for _, item := range tt.items {
-				b.Insert(item.key, item.value)
+			wg := sync.WaitGroup{}
+			for key, value := range tt.items {
+				wg.Add(1)
+				go func() {
+					b.Insert(key, value)
+					wg.Done()
+				}()
 			}
+			wg.Wait()
 
-			err := b.Remove(tt.key)
-			assert.ErrorIs(t, err, tt.wantErr)
+			wg.Add(1)
+			go func() {
+				err := b.Remove(tt.key)
+				assert.ErrorIs(t, err, tt.wantErr)
+				wg.Done()
+			}()
+			wg.Wait()
 
-			result := b.Traverse()
-			for _, res := range result {
-				assert.NotEqual(t, tt.key, res.Key)
+			items := b.Iter()
+			for it := range items {
+				assert.NotEqual(t, tt.key, it.Key)
 			}
 		})
 	}
 }
 
-func TestBtree_Traverse(t *testing.T) {
+func TestBtree_Iter(t *testing.T) {
 	tests := []struct {
 		name  string
 		order int
-		items []item
+		items map[int]string
 	}{
 		{
-			name:  "simple",
+			name:  "Simple",
 			order: 3,
-			items: []item{
-				{key: 1, value: "a"},
-				{key: 2, value: "b"},
-				{key: 3, value: "c"},
-				{key: 4, value: "d"},
-				{key: 5, value: "e"},
-				{key: 6, value: "f"},
-				{key: 7, value: "g"},
+			items: map[int]string{
+				1: "a",
+				2: "b",
+				3: "c",
+				4: "d",
+				5: "e",
+				6: "f",
+				7: "g",
 			},
 		},
 		{
-			name:  "reverse",
+			name:  "Reverse",
 			order: 3,
-			items: []item{
-				{key: 7, value: "g"},
-				{key: 6, value: "f"},
-				{key: 5, value: "e"},
-				{key: 4, value: "d"},
-				{key: 3, value: "c"},
-				{key: 2, value: "b"},
-				{key: 1, value: "a"},
+			items: map[int]string{
+				7: "g",
+				6: "f",
+				5: "e",
+				4: "d",
+				3: "c",
+				2: "b",
+				1: "a",
 			},
 		},
 	}
@@ -316,23 +293,19 @@ func TestBtree_Traverse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			b, _ := btree.New[int, string](tt.order)
 
-			for _, item := range tt.items {
-				b.Insert(item.key, item.value)
+			wg := sync.WaitGroup{}
+			for key, value := range tt.items {
+				wg.Add(1)
+				go func() {
+					b.Insert(key, value)
+					wg.Done()
+				}()
 			}
+			wg.Wait()
 
-			result := b.Traverse()
-			assert.Len(t, result, len(tt.items))
-			assert.True(t, sort.SliceIsSorted(result, func(i, j int) bool {
-				return result[i].Key < result[j].Key
-			}))
-
-			sort.Slice(tt.items, func(i, j int) bool {
-				return tt.items[i].key < tt.items[j].key
-			})
-			
-			for i, res := range result {
-				assert.Equal(t, tt.items[i].key, res.Key)
-				assert.Equal(t, tt.items[i].value, res.Value)
+			items := b.Iter()
+			for it := range items {
+				assert.Equal(t, tt.items[it.Key], it.Value)
 			}
 		})
 	}

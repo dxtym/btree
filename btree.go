@@ -3,10 +3,10 @@ package btree
 import (
 	"cmp"
 	"errors"
+	"sync"
 )
 
 var (
-	ErrTreeEmpty    = errors.New("tree is empty")
 	ErrKeyNotFound  = errors.New("key not found")
 	ErrInvalidOrder = errors.New("order must be at least 3")
 )
@@ -23,7 +23,6 @@ type node[K cmp.Ordered, V any] struct {
 	keys        []*item[K, V]
 	children    []*node[K, V]
 }
-
 
 // isLeaf checks whether the node is a leaf.
 func (n *node[K, V]) isLeaf() bool {
@@ -43,7 +42,7 @@ func (n *node[K, V]) isFull() bool {
 // hasFew checks whether the node has few keys.
 func (n *node[K, V]) hasFew() bool {
 	return n.numKeys < n.order/2
-} 
+}
 
 // hasEnough checks whether the node has enough keys.
 func (n *node[K, V]) hasEnough() bool {
@@ -155,7 +154,7 @@ func (n *node[K, V]) search(key K) (int, bool) {
 func (n *node[K, V]) insert(it *item[K, V]) bool {
 	index, ok := n.search(it.Key)
 	if ok {
-		n.keys[index] = it
+		n.insertKey(index, it)
 		return n.isFull()
 	}
 
@@ -174,24 +173,20 @@ func (n *node[K, V]) insert(it *item[K, V]) bool {
 }
 
 // traverse returns in-order depth first search of the tree.
-func (n *node[K, V]) traverse() []*item[K, V] {
+func (n *node[K, V]) iter(ch chan<- *item[K, V]) {
 	if n.isLeaf() {
-		items := make([]*item[K, V], n.numKeys)
 		for i := 0; i < n.numKeys; i++ {
-			items[i] = n.keys[i]
+			ch <- n.keys[i]
 		}
-		return items
+		return
 	}
 
-	items := make([]*item[K, V], 0, n.numKeys) // TODO: optimize capacity
 	for i := 0; i < n.numChildren; i++ {
-		items = append(items, n.children[i].traverse()...)
+		n.children[i].iter(ch)
 		if i < n.numKeys {
-			items = append(items, n.keys[i])
+			ch <- n.keys[i]
 		}
 	}
-
-	return items
 }
 
 // borrowLeft borrows a key from the left sibling.
@@ -206,7 +201,7 @@ func (n *node[K, V]) borrowLeft(index int) {
 		left.removeChild(left.numChildren - 1)
 	}
 
-	n.keys[index-1] = left.keys[left.numKeys-1]
+	n.insertKey(index-1, n.keys[index-1])
 	left.removeKey(left.numKeys - 1)
 }
 
@@ -222,7 +217,7 @@ func (n *node[K, V]) borrowRight(index int) {
 		right.removeChild(0)
 	}
 
-	n.keys[index] = right.keys[0]
+	n.insertKey(index, right.keys[0])
 	right.removeKey(0)
 }
 
@@ -338,20 +333,47 @@ func (n *node[K, V]) remove(key K) (error, bool) {
 
 type Btree[K cmp.Ordered, V any] struct {
 	order int
+	mu    sync.RWMutex
 	root  *node[K, V]
 }
 
+// split performs split of the root node.
+func (b *Btree[K, V]) split() {
+	root := &node[K, V]{
+		order:    b.order,
+		keys:     make([]*item[K, V], b.order),
+		children: make([]*node[K, V], b.order+1),
+	}
+
+	median, right := b.root.split()
+
+	root.insertKey(root.numKeys, median)
+	root.insertChild(root.numChildren, b.root)
+	root.insertChild(root.numChildren, right)
+
+	b.root = root
+}
+
+// New initializes a new B-tree with the given order.
 func New[K cmp.Ordered, V any](order int) (*Btree[K, V], error) {
 	if order < 3 {
 		return nil, ErrInvalidOrder
 	}
 	return &Btree[K, V]{
 		order: order,
+		root: &node[K, V]{
+			order:    order,
+			keys:     make([]*item[K, V], order),
+			children: make([]*node[K, V], order+1),
+		},
 	}, nil
 }
 
 // Search finds the value of the given key.
 func (b *Btree[K, V]) Search(key K) (V, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
 	for node := b.root; node != nil; {
 		index, ok := node.search(key)
 		if ok {
@@ -365,63 +387,37 @@ func (b *Btree[K, V]) Search(key K) (V, error) {
 	return value, ErrKeyNotFound
 }
 
-// split performs split of the root node.
-func (b *Btree[K, V]) split() {
-	root := &node[K, V]{
-		order:    b.order,
-		keys:     make([]*item[K, V], b.order),
-		children: make([]*node[K, V], b.order+1),
-	}
-
-	median, right := b.root.split()
-
-	root.keys[root.numKeys] = median
-	root.children[root.numChildren] = b.root
-	root.children[root.numChildren+1] = right
-
-	root.numKeys++
-	root.numChildren += 2
-
-	b.root = root
-}
-
 // Insert adds a new key-value pair to the tree.
-func (b *Btree[K, V]) Insert(key K, value V) bool {
-	it := &item[K, V]{
+func (b *Btree[K, V]) Insert(key K, value V) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if ok := b.root.insert(&item[K, V]{
 		Key:   key,
 		Value: value,
-	}
-
-	if b.root == nil {
-		b.root = &node[K, V]{
-			order:    b.order,
-			keys:     make([]*item[K, V], b.order),
-			children: make([]*node[K, V], b.order+1),
-		}
-	}
-
-	ok := b.root.insert(it) 
-	if ok {
+	}); ok {
 		b.split()
 	}
-
-	return ok
 }
 
-// Traverse returns the in-order depth first search of the tree.
-func (b *Btree[K, V]) Traverse() []*item[K, V] {
-	if b.root != nil {
-		return b.root.traverse()
-	}
+// Iter returns a channel to traverse the tree.
+func (b *Btree[K, V]) Iter() <-chan *item[K, V] {
+	b.mu.RLock()
+	ch := make(chan *item[K, V])
 
-	return []*item[K, V]{}
+	go func() {
+		b.root.iter(ch)
+		b.mu.RUnlock()
+		close(ch)
+	}()
+
+	return ch
 }
 
 // Remove deletes the key from the tree.
 func (b *Btree[K, V]) Remove(key K) error {
-	if b.root == nil {
-		return ErrTreeEmpty
-	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	err, ok := b.root.remove(key)
 	if ok {
