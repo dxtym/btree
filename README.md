@@ -1,5 +1,6 @@
 # Btree
 
+[![codecov](https://codecov.io/gh/dxtym/btree/branch/main/graph/badge.svg)](https://codecov.io/gh/dxtym/btree)
 [![License](https://img.shields.io/badge/License-MIT-blue)](#license)
 
 An in-memory generic B-tree data structure in Go.
